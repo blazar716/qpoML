@@ -1,70 +1,77 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from astropy.timeseries import LombScargle
-from astropy.stats import LombScargle as PDM
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
 
-# Generate synthetic light curve data with a 10-day sinusoidal period and Gaussian noise
-np.random.seed(42)
-time = np.linspace(0, 100, 1000)
-true_period = 10
-flux = np.sin(2 * np.pi * time / true_period) + 0.1 * np.random.normal(size=len(time))
+# Step 1: Generate synthetic light curve data
+def generate_synthetic_light_curve(periodic=True, num_points=1000):
+    time = np.linspace(0, 50, num_points)
+    if periodic:
+        amplitude = 1 + np.random.uniform(-0.1, 0.1)
+        period = 10 * (1 + np.random.uniform(-0.1, 0.1))
+        flux = amplitude * np.sin(2 * np.pi * time / period) + 0.1 * np.random.normal(size=num_points)
+    else:
+        flux = 0.5 * np.random.normal(size=num_points)
+    return time, flux
 
-# Add some noise to the data
-flux += 0.1 * np.random.normal(size=len(time))
+num_samples = 1000
+light_curves = []
+labels = []
 
-# Use Lomb-Scargle to get an initial periodogram and identify the peak
-frequency, power = LombScargle(time, flux).autopower()
-best_frequency = frequency[np.argmax(power)]
-initial_best_period = 1 / best_frequency
+for _ in range(num_samples // 2):
+    time, flux = generate_synthetic_light_curve(periodic=True)
+    light_curves.append(flux)
+    labels.append(1)
 
-# Print the initial best period
-print(f'Initial best period from Lomb-Scargle: {initial_best_period:.2f} days')
+for _ in range(num_samples // 2):
+    time, flux = generate_synthetic_light_curve(periodic=False)
+    light_curves.append(flux)
+    labels.append(0)
 
-# Plot the periodogram
-plt.figure(figsize=(10, 4))
-plt.plot(1 / frequency, power)
-plt.axvline(initial_best_period, color='r', linestyle='--', label=f'Initial Best Period: {initial_best_period:.2f} days')
-plt.xlabel('Period (days)')
-plt.ylabel('Power')
-plt.legend()
-plt.title('Lomb-Scargle Periodogram')
-plt.show()
+light_curves = np.array(light_curves)
+labels = np.array(labels)
 
-# Use PDM to refine the period search
-min_period = 5
-max_period = 15
-periods = np.linspace(min_period, max_period, 1000)
-pdm_scores = np.zeros_like(periods)
+# Step 2: Extract features from the light curves
+def extract_features(light_curve):
+    mean_flux = np.mean(light_curve)
+    std_flux = np.std(light_curve)
+    max_flux = np.max(light_curve)
+    min_flux = np.min(light_curve)
+    return [mean_flux, std_flux, max_flux, min_flux]
 
-for i, period in enumerate(periods):
-    phase = (time / period) % 1
-    bins = np.linspace(0, 1, 10)
-    digitized = np.digitize(phase, bins)
-    bin_means = [flux[digitized == j].mean() for j in range(1, len(bins))]
-    bin_vars = [flux[digitized == j].var() for j in range(1, len(bins))]
-    pdm_scores[i] = np.sum(bin_vars) / np.var(flux)
+X = np.array([extract_features(lc) for lc in light_curves])
+y = labels
 
-best_period_pdm = periods[np.argmin(pdm_scores)]
+# Step 3: Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-# Print the best period from PDM
-print(f'Best period from PDM: {best_period_pdm:.2f} days')
+# Step 4: Train a machine learning model
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train, y_train)
 
-# Plot PDM results
-plt.figure(figsize=(10, 4))
-plt.plot(periods, pdm_scores)
-plt.axvline(best_period_pdm, color='r', linestyle='--', label=f'Best Period: {best_period_pdm:.2f} days')
-plt.xlabel('Period (days)')
-plt.ylabel('PDM Score')
-plt.legend()
-plt.title('PDM Period Search')
-plt.show()
+# Step 5: Evaluate the model
+y_pred = clf.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+report = classification_report(y_test, y_pred)
 
-# Plot the folded light curve using the best period from PDM
-phase = (time / best_period_pdm) % 1
-plt.figure(figsize=(10, 4))
-plt.scatter(phase, flux, s=10)
-plt.xlabel('Phase')
+print(f'Accuracy: {accuracy:.2f}')
+print('Classification Report:')
+print(report)
+
+# Plotting an example of a periodic and non-periodic light curve
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plt.plot(time, light_curves[0])
+plt.title('Example Periodic Light Curve')
+plt.xlabel('Time')
 plt.ylabel('Flux')
-plt.title('Folded Light Curve using Best Period from PDM')
-plt.show()
 
+plt.subplot(1, 2, 2)
+plt.plot(time, light_curves[num_samples // 2])
+plt.title('Example Non-Periodic Light Curve')
+plt.xlabel('Time')
+plt.ylabel('Flux')
+
+plt.tight_layout()
+plt.show()
